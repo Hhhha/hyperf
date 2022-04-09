@@ -5,48 +5,50 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Utils;
 
 use Hyperf\Contract\StdoutLoggerInterface;
+use Hyperf\Engine\Coroutine as Co;
+use Hyperf\Engine\Exception\CoroutineDestroyedException;
+use Hyperf\Engine\Exception\RunningInNonCoroutineException;
 use Hyperf\ExceptionHandler\Formatter\FormatterInterface;
 use Psr\Log\LoggerInterface;
-use Swoole\Coroutine as SwooleCoroutine;
 use Throwable;
 
-/**
- * @method static void defer(callable $callable)
- */
 class Coroutine
 {
-    public static function __callStatic($name, $arguments)
-    {
-        if (! method_exists(SwooleCoroutine::class, $name)) {
-            throw new \BadMethodCallException(sprintf('Call to undefined method %s.', $name));
-        }
-        return SwooleCoroutine::$name(...$arguments);
-    }
-
     /**
      * Returns the current coroutine ID.
      * Returns -1 when running in non-coroutine context.
      */
     public static function id(): int
     {
-        return SwooleCoroutine::getCid();
+        return Co::id();
+    }
+
+    public static function defer(callable $callable)
+    {
+        Co::defer($callable);
+    }
+
+    public static function sleep(float $seconds)
+    {
+        usleep(intval($seconds * 1000 * 1000));
     }
 
     /**
      * Returns the parent coroutine ID.
-     * Returns -1 when running in non-coroutine context.
+     * Returns 0 when running in the top level coroutine.
+     * @throws RunningInNonCoroutineException when running in non-coroutine context
+     * @throws CoroutineDestroyedException when the coroutine has been destroyed
      */
-    public static function parentId(): int
+    public static function parentId(?int $coroutineId = null): int
     {
-        return SwooleCoroutine::getPcid();
+        return Co::pid($coroutineId);
     }
 
     /**
@@ -55,7 +57,7 @@ class Coroutine
      */
     public static function create(callable $callable): int
     {
-        $result = SwooleCoroutine::create(function () use ($callable) {
+        $coroutine = Co::create(function () use ($callable) {
             try {
                 call($callable);
             } catch (Throwable $throwable) {
@@ -75,11 +77,16 @@ class Coroutine
                 }
             }
         });
-        return is_int($result) ? $result : -1;
+
+        try {
+            return $coroutine->getId();
+        } catch (\Throwable $exception) {
+            return -1;
+        }
     }
 
     public static function inCoroutine(): bool
     {
-        return Coroutine::id() > 0;
+        return Co::id() > 0;
     }
 }

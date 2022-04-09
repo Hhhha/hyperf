@@ -5,18 +5,18 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Guzzle\RingPHP;
 
 use GuzzleHttp\Ring\Core;
 use GuzzleHttp\Ring\Exception\RingException;
 use GuzzleHttp\Ring\Future\CompletedFutureArray;
-use Swoole\Coroutine;
-use Swoole\Coroutine\Http\Client;
+use Hyperf\Engine\Http\Client;
+use Hyperf\Engine\Http\RawResponse;
+use Hyperf\Utils\ResourceGenerator;
 
 /**
  * Http handler that uses Swoole Coroutine as a transport layer.
@@ -35,13 +35,12 @@ class CoroutineHandler
         $method = $request['http_method'] ?? 'GET';
         $scheme = $request['scheme'] ?? 'http';
         $ssl = $scheme === 'https';
-        $uri = $request['uri'] ?? '/';
         $body = $request['body'] ?? '';
         $effectiveUrl = Core::url($request);
         $params = parse_url($effectiveUrl);
         $host = $params['host'];
         if (! isset($params['port'])) {
-            $params['port'] = $ssl ? 443 : 80;
+            $params['port'] = $this->getPort($request, $ssl);
         }
         $port = $params['port'];
         $path = $params['path'] ?? '/';
@@ -49,45 +48,36 @@ class CoroutineHandler
             $path .= '?' . $params['query'];
         }
 
-        $client = new Client($host, $port, $ssl);
-        $client->setMethod($method);
-        $client->setData($body);
-
-        // 初始化Headers
-        $this->initHeaders($client, $request);
+        $client = $this->makeClient($host, $port, $ssl);
+        // Init Headers
+        $headers = $this->initHeaders($request);
         $settings = $this->getSettings($this->options);
-
-        // 设置客户端参数
         if (! empty($settings)) {
             $client->set($settings);
         }
 
         $btime = microtime(true);
-        $this->execute($client, $path);
 
-        $ex = $this->checkStatusCode($client, $request);
-        if ($ex !== true) {
-            return [
-                'status' => null,
-                'reason' => null,
-                'headers' => [],
-                'error' => $ex,
-            ];
+        try {
+            $raw = $client->request($method, $path, $headers, (string) $body);
+        } catch (\Exception $exception) {
+            $exception = new RingException($exception->getMessage());
+            return $this->getErrorResponse($exception, $btime, $effectiveUrl);
         }
 
-        return $this->getResponse($client, $btime, $effectiveUrl);
+        return $this->getResponse($raw, $btime, $effectiveUrl);
     }
 
-    protected function execute(Client $client, $path)
+    protected function makeClient(string $host, int $port, bool $ssl): Client
     {
-        $client->execute($path);
+        return new Client($host, $port, $ssl);
     }
 
     protected function getSettings($options): array
     {
         $settings = [];
-        if (isset($options['delay'])) {
-            Coroutine::sleep((float) $options['delay'] / 1000);
+        if (isset($options['delay']) && $options['delay'] > 0) {
+            usleep(intval($options['delay'] * 1000));
         }
 
         // 超时
@@ -98,7 +88,16 @@ class CoroutineHandler
         return $settings;
     }
 
-    protected function initHeaders(Client $client, $request)
+    protected function getPort(array $request, bool $ssl = false): int
+    {
+        if ($port = $request['client']['curl'][CURLOPT_PORT] ?? null) {
+            return (int) $port;
+        }
+
+        return $ssl ? 443 : 80;
+    }
+
+    protected function initHeaders($request)
     {
         $headers = [];
         foreach ($request['headers'] ?? [] as $name => $value) {
@@ -111,47 +110,44 @@ class CoroutineHandler
             $headers['Authorization'] = sprintf('Basic %s', base64_encode($userInfo));
         }
 
-        // TODO: 不知道为啥，这个扔进来就400
-        unset($headers['Content-Length']);
-        $client->setHeaders($headers);
+        return $this->rewriteHeaders($headers);
     }
 
-    protected function getResponse(Client $client, $btime, $effectiveUrl)
+    protected function rewriteHeaders(array $headers): array
+    {
+        // Unknown reason, Content-Length will cause 400 some time.
+        unset($headers['Content-Length']);
+        return $headers;
+    }
+
+    protected function getErrorResponse(\Throwable $throwable, $btime, $effectiveUrl)
+    {
+        return new CompletedFutureArray([
+            'curl' => [
+                'errno' => 0,
+            ],
+            'transfer_stats' => [
+                'total_time' => microtime(true) - $btime,
+            ],
+            'effective_url' => $effectiveUrl,
+            'body' => '',
+            'status' => null,
+            'reason' => null,
+            'headers' => [],
+            'error' => $throwable,
+        ]);
+    }
+
+    protected function getResponse(RawResponse $response, $btime, $effectiveUrl)
     {
         return new CompletedFutureArray([
             'transfer_stats' => [
                 'total_time' => microtime(true) - $btime,
             ],
             'effective_url' => $effectiveUrl,
-            'headers' => isset($client->headers) ? $client->headers : [],
-            'status' => $client->statusCode,
-            'body' => $this->getStream($client->body),
+            'headers' => $response->headers,
+            'status' => $response->statusCode,
+            'body' => ResourceGenerator::from($response->body),
         ]);
-    }
-
-    protected function checkStatusCode($client, $request)
-    {
-        $statusCode = $client->statusCode;
-        $errCode = $client->errCode;
-
-        if ($statusCode === -1) {
-            return new RingException(sprintf('Connection timed out errCode=%s', $errCode));
-        }
-        if ($statusCode === -2) {
-            return new RingException('Request timed out');
-        }
-
-        return true;
-    }
-
-    protected function getStream(string $resource)
-    {
-        $stream = fopen('php://temp', 'r+');
-        if ($resource !== '') {
-            fwrite($stream, $resource);
-            fseek($stream, 0);
-        }
-
-        return $stream;
     }
 }

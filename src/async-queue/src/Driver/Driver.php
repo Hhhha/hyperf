@@ -5,21 +5,24 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\AsyncQueue\Driver;
 
-use Hyperf\AsyncQueue\Environment;
 use Hyperf\AsyncQueue\Event\AfterHandle;
 use Hyperf\AsyncQueue\Event\BeforeHandle;
 use Hyperf\AsyncQueue\Event\FailedHandle;
+use Hyperf\AsyncQueue\Event\QueueLength;
 use Hyperf\AsyncQueue\Event\RetryHandle;
 use Hyperf\AsyncQueue\Exception\InvalidPackerException;
 use Hyperf\AsyncQueue\MessageInterface;
 use Hyperf\Contract\PackerInterface;
+use Hyperf\Contract\StdoutLoggerInterface;
+use Hyperf\Process\ProcessManager;
+use Hyperf\Utils\Arr;
+use Hyperf\Utils\Coroutine\Concurrent;
 use Hyperf\Utils\Packer\PhpSerializerPacker;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -41,38 +44,96 @@ abstract class Driver implements DriverInterface
      */
     protected $event;
 
+    /**
+     * @var null|Concurrent
+     */
+    protected $concurrent;
+
+    /**
+     * @var array
+     */
+    protected $config;
+
+    /**
+     * @var int
+     */
+    protected $lengthCheckCount = 500;
+
     public function __construct(ContainerInterface $container, $config)
     {
         $this->container = $container;
         $this->packer = $container->get($config['packer'] ?? PhpSerializerPacker::class);
         $this->event = $container->get(EventDispatcherInterface::class);
+        $this->config = $config;
 
         if (! $this->packer instanceof PackerInterface) {
             throw new InvalidPackerException(sprintf('[Error] %s is not a invalid packer.', $config['packer']));
+        }
+
+        $concurrentLimit = $config['concurrent']['limit'] ?? null;
+        if ($concurrentLimit && is_numeric($concurrentLimit)) {
+            $this->concurrent = new Concurrent((int) $concurrentLimit);
         }
     }
 
     public function consume(): void
     {
-        $this->container->get(Environment::class)->setAsyncQueue(true);
+        $messageCount = 0;
+        $maxMessages = Arr::get($this->config, 'max_messages', 0);
 
-        while (true) {
-            [$data, $message] = $this->pop();
+        while (ProcessManager::isRunning()) {
+            try {
+                [$data, $message] = $this->pop();
 
-            if ($data === false) {
-                continue;
+                if ($data === false) {
+                    continue;
+                }
+
+                $callback = $this->getCallback($data, $message);
+
+                if ($this->concurrent instanceof Concurrent) {
+                    $this->concurrent->create($callback);
+                } else {
+                    parallel([$callback]);
+                }
+
+                if ($messageCount % $this->lengthCheckCount === 0) {
+                    $this->checkQueueLength();
+                }
+
+                if ($maxMessages > 0 && $messageCount >= $maxMessages) {
+                    break;
+                }
+            } catch (\Throwable $exception) {
+                $logger = $this->container->get(StdoutLoggerInterface::class);
+                $logger->error((string) $exception);
+            } finally {
+                ++$messageCount;
             }
+        }
+    }
 
-            parallel([function () use ($message, $data) {
-                try {
-                    if ($message instanceof MessageInterface) {
-                        $this->event && $this->event->dispatch(new BeforeHandle($message));
-                        $message->job()->handle();
-                        $this->event && $this->event->dispatch(new AfterHandle($message));
-                    }
+    protected function checkQueueLength()
+    {
+        $info = $this->info();
+        foreach ($info as $key => $value) {
+            $this->event && $this->event->dispatch(new QueueLength($this, $key, $value));
+        }
+    }
 
-                    $this->ack($data);
-                } catch (\Throwable $ex) {
+    protected function getCallback($data, $message): callable
+    {
+        return function () use ($data, $message) {
+            try {
+                if ($message instanceof MessageInterface) {
+                    $this->event && $this->event->dispatch(new BeforeHandle($message));
+                    $message->job()->handle();
+                    $this->event && $this->event->dispatch(new AfterHandle($message));
+                }
+
+                $this->ack($data);
+            } catch (\Throwable $ex) {
+                if (isset($message, $data)) {
                     if ($message->attempts() && $this->remove($data)) {
                         $this->event && $this->event->dispatch(new RetryHandle($message, $ex));
                         $this->retry($message);
@@ -81,8 +142,8 @@ abstract class Driver implements DriverInterface
                         $this->fail($data);
                     }
                 }
-            }]);
-        }
+            }
+        };
     }
 
     /**

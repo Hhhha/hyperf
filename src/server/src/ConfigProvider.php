@@ -5,14 +5,16 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Server;
 
+use Hyperf\Server\Command\StartServer;
+use Hyperf\Server\Listener\AfterWorkerStartListener;
 use Hyperf\Server\Listener\InitProcessTitleListener;
+use Hyperf\Server\Listener\StoreServerNameListener;
 use Swoole\Server as SwooleServer;
 
 class ConfigProvider
@@ -23,14 +25,19 @@ class ConfigProvider
             'dependencies' => [
                 SwooleServer::class => SwooleServerFactory::class,
             ],
-            'commands' => [
-            ],
             'listeners' => [
+                StoreServerNameListener::class,
+                AfterWorkerStartListener::class,
                 InitProcessTitleListener::class,
             ],
-            'scan' => [
-                'paths' => [
-                    __DIR__,
+            'commands' => [
+                StartServer::class,
+            ],
+            'annotations' => [
+                'scan' => [
+                    'paths' => [
+                        __DIR__,
+                    ],
                 ],
             ],
             'publish' => [

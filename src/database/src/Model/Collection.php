@@ -5,11 +5,10 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Database\Model;
 
 use Hyperf\Contract\CompressInterface;
@@ -19,14 +18,22 @@ use Hyperf\Utils\Collection as BaseCollection;
 use Hyperf\Utils\Contracts\Arrayable;
 use Hyperf\Utils\Str;
 
+/**
+ * @template TKey of array-key
+ * @template TModel of \Hyperf\Database\Model\Model
+ *
+ * @extends BaseCollection<TKey, TModel>
+ */
 class Collection extends BaseCollection implements CompressInterface
 {
     /**
      * Find a model in the collection by key.
      *
-     * @param null|mixed $default
+     * @template TFindDefault
+     *
      * @param mixed $key
-     * @return \Hyperf\Database\Model\Model|static
+     * @param TFindDefault $default
+     * @return static<TKey|TModel>|TFindDefault|TModel
      */
     public function find($key, $default = null)
     {
@@ -54,7 +61,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Load a set of relationships onto the collection.
      *
-     * @param array|string $relations
+     * @param  array<array-key, (callable(\Hyperf\Database\Model\Builder): mixed)|string>|string  $relations
      * @return $this
      */
     public function load($relations)
@@ -75,7 +82,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Load a set of relationship counts onto the collection.
      *
-     * @param array|string $relations
+     * @param  array<array-key, (callable(\Hyperf\Database\Model\Builder): mixed)|string>|string  $relations
      * @return $this
      */
     public function loadCount($relations)
@@ -107,7 +114,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Load a set of relationships onto the collection if they are not already eager loaded.
      *
-     * @param array|string $relations
+     * @param  array<array-key, (callable(\Hyperf\Database\Model\Builder): mixed)|string>|string  $relations
      * @return $this
      */
     public function loadMissing($relations)
@@ -143,7 +150,7 @@ class Collection extends BaseCollection implements CompressInterface
      * Load a set of relationships onto the mixed relationship collection.
      *
      * @param string $relation
-     * @param array $relations
+     * @param  array<array-key, (callable(\Hyperf\Database\Model\Builder): mixed)|string>|string  $relations
      * @return $this
      */
     public function loadMorph($relation, $relations)
@@ -167,7 +174,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Add an item to the collection.
      *
-     * @param mixed $item
+     * @param TModel $item
      * @return $this
      */
     public function add($item)
@@ -179,9 +186,10 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Determine if a key exists in the collection.
-     * @param null|mixed $operator
-     * @param null|mixed $value
-     * @param mixed $key
+     *
+     * @param  (callable(TModel, TKey): bool)|TModel|string  $key
+     * @param mixed $operator
+     * @param mixed $value
      */
     public function contains($key, $operator = null, $value = null): bool
     {
@@ -203,7 +211,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Get the array of primary keys.
      *
-     * @return array
+     * @return array<int, mixed>
      */
     public function modelKeys()
     {
@@ -215,8 +223,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Merge the collection with the given items.
      *
-     * @param array|\ArrayAccess $items
-     * @return static
+     * @param iterable<array-key, TModel> $items
+     * @return static<TKey, TModel>
      */
     public function merge($items): BaseCollection
     {
@@ -231,6 +239,11 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Run a map over each of the items.
+     *
+     * @template TMapValue
+     *
+     * @param callable(TModel, TKey): TMapValue $callback
+     * @return BaseCollection<TKey, TMapValue>|static<TKey, TMapValue>
      */
     public function map(callable $callback): BaseCollection
     {
@@ -244,8 +257,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Reload a fresh model instance from the database for all the entities.
      *
-     * @param array|string $with
-     * @return static
+     * @param array<array-key, string>|string $with
+     * @return static<TKey, TModel>
      */
     public function fresh($with = [])
     {
@@ -270,8 +283,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Diff the collection with the given items.
      *
-     * @param array|\ArrayAccess $items
-     * @return static
+     * @param iterable<array-key, TModel> $items
+     * @return static<TKey, TModel>
      */
     public function diff($items): BaseCollection
     {
@@ -291,8 +304,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Intersect the collection with the given items.
      *
-     * @param array|\ArrayAccess $items
-     * @return static
+     * @param iterable<array-key, TModel> $items
+     * @return static<TKey, TModel>
      */
     public function intersect($items): BaseCollection
     {
@@ -312,7 +325,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Return only unique items from the collection.
      *
-     * @param null|callable|string $key
+     * @param  (callable(TModel, TKey): bool)|string|null  $key
+     * @return static<int, TModel>
      */
     public function unique($key = null, bool $strict = false): BaseCollection
     {
@@ -326,8 +340,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Returns only the models from the collection with the specified keys.
      *
-     * @param mixed $keys
-     * @return static
+     * @param null|array<array-key, mixed> $keys
+     * @return static<int, TModel>
      */
     public function only($keys): BaseCollection
     {
@@ -341,10 +355,43 @@ class Collection extends BaseCollection implements CompressInterface
     }
 
     /**
+     * Returns only the columns from the collection with the specified keys.
+     *
+     * @param null|array|TKey $keys
+     * @return static<int, mixed>
+     */
+    public function columns($keys): BaseCollection
+    {
+        if (is_null($keys)) {
+            return new BaseCollection([]);
+        }
+        $result = [];
+        $isSingleColumn = is_string($keys);
+        foreach ($this->items as $item) {
+            if ($isSingleColumn) {
+                $value = $item->{$keys} ?? null;
+                $result[] = $value instanceof Arrayable ? $value->toArray() : $value;
+            } else {
+                $result[] = value(static function () use ($item, $keys) {
+                    $res = [];
+                    foreach ($keys as $key) {
+                        $value = $item->{$key} ?? null;
+                        $res[$key] = $value instanceof Arrayable ? $value->toArray() : $value;
+                    }
+
+                    return $res;
+                });
+            }
+        }
+
+        return new BaseCollection($result);
+    }
+
+    /**
      * Returns all models in the collection except the models with specified keys.
      *
-     * @param mixed $keys
-     * @return static
+     * @param null|array<array-key, mixed> $keys
+     * @return static<int, TModel>
      */
     public function except($keys): BaseCollection
     {
@@ -356,7 +403,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Make the given, typically visible, attributes hidden across the entire collection.
      *
-     * @param array|string $attributes
+     * @param array<array-key, string>|string $attributes
      * @return $this
      */
     public function makeHidden($attributes)
@@ -367,7 +414,7 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Make the given, typically hidden, attributes visible across the entire collection.
      *
-     * @param array|string $attributes
+     * @param array<array-key, string>|string $attributes
      * @return $this
      */
     public function makeVisible($attributes)
@@ -378,8 +425,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Get a dictionary keyed by primary keys.
      *
-     * @param null|array|\ArrayAccess $items
-     * @return array
+     * @param null|iterable<array-key, TModel> $items
+     * @return array<array-key, TModel>
      */
     public function getDictionary($items = null)
     {
@@ -402,7 +449,8 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Get an array with the values of a given key.
      *
-     * @param string $value
+     * @param array<array-key, string>|string $value
+     * @return BaseCollection<int, mixed>
      */
     public function pluck($value, ?string $key = null): BaseCollection
     {
@@ -411,6 +459,8 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Get the keys of the collection items.
+     *
+     * @return BaseCollection<int, TKey>
      */
     public function keys(): BaseCollection
     {
@@ -420,7 +470,10 @@ class Collection extends BaseCollection implements CompressInterface
     /**
      * Zip the collection together with one or more arrays.
      *
-     * @param mixed ...$items
+     * @template TZipValue
+     *
+     * @param Arrayable<array-key, TZipValue>|iterable<array-key, TZipValue> ...$items
+     * @return BaseCollection<int, BaseCollection<int, TModel|TZipValue>>
      */
     public function zip($items): BaseCollection
     {
@@ -429,6 +482,8 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Collapse the collection of items into a single array.
+     *
+     * @return BaseCollection<int, mixed>
      */
     public function collapse(): BaseCollection
     {
@@ -437,14 +492,19 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Get a flattened array of the items in the collection.
+     *
+     * @param int $depth
+     * @return BaseCollection<int, mixed>
      */
-    public function flatten(int $depth = INF): BaseCollection
+    public function flatten($depth = INF): BaseCollection
     {
         return $this->toBase()->flatten($depth);
     }
 
     /**
      * Flip the items in the collection.
+     *
+     * @return BaseCollection<TModel, TKey>
      */
     public function flip(): BaseCollection
     {
@@ -453,7 +513,11 @@ class Collection extends BaseCollection implements CompressInterface
 
     /**
      * Pad collection to the specified length with a value.
-     * @param mixed $value
+     *
+     * @template TPadValue
+     *
+     * @param TPadValue $value
+     * @return BaseCollection<int, TModel|TPadValue>
      */
     public function pad(int $size, $value): BaseCollection
     {

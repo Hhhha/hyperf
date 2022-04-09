@@ -5,11 +5,10 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Database\Query\Grammars;
 
 use Hyperf\Database\Grammar as BaseGrammar;
@@ -74,7 +73,7 @@ class Grammar extends BaseGrammar
         $sql = trim(
             $this->concatenate(
                 $this->compileComponents($query)
-        )
+            )
         );
 
         $query->columns = $original;
@@ -102,6 +101,14 @@ class Grammar extends BaseGrammar
     public function compileRandom($seed)
     {
         return 'RANDOM()';
+    }
+
+    /**
+     * Compile an insert ignore statement into SQL.
+     */
+    public function compileInsertOrIgnore(Builder $query, array $values)
+    {
+        throw new RuntimeException('This database engine does not support insert or ignore.');
     }
 
     /**
@@ -389,6 +396,14 @@ class Grammar extends BaseGrammar
      */
     protected function compileFrom(Builder $query, $table)
     {
+        if ($query->forceIndexes) {
+            $forceIndexes = [];
+            foreach ($query->forceIndexes as $forceIndex) {
+                $forceIndexes[] = $this->wrapValue($forceIndex);
+            }
+            return 'from ' . $this->wrapTable($table) . ' force index (' . implode(',', $forceIndexes) . ')';
+        }
+
         return 'from ' . $this->wrapTable($table);
     }
 
@@ -770,7 +785,7 @@ class Grammar extends BaseGrammar
         return $not . $this->compileJsonContains(
             $where['column'],
             $this->parameter($where['value'])
-            );
+        );
     }
 
     /**

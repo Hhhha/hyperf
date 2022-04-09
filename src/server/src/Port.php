@@ -5,11 +5,10 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Server;
 
 class Port
@@ -37,7 +36,7 @@ class Port
     /**
      * @var int
      */
-    protected $sockType = SWOOLE_SOCK_TCP;
+    protected $sockType = 0;
 
     /**
      * @var array
@@ -58,6 +57,7 @@ class Port
         isset($config['type']) && $port->setType($config['type']);
         isset($config['host']) && $port->setHost($config['host']);
         isset($config['port']) && $port->setPort($config['port']);
+        isset($config['sock_type']) && $port->setSockType($config['sock_type']);
         isset($config['callbacks']) && $port->setCallbacks($config['callbacks']);
         isset($config['settings']) && $port->setSettings($config['settings']);
 
@@ -143,7 +143,7 @@ class Port
 
     private static function filter(array $config): array
     {
-        if ((int) $config['type'] === ServerInterface::SERVER_TCP) {
+        if ((int) $config['type'] === ServerInterface::SERVER_BASE) {
             $default = [
                 'open_http2_protocol' => false,
                 'open_http_protocol' => false,

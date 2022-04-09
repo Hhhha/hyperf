@@ -5,15 +5,17 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Utils;
 
-use Swoole\Coroutine as SwCoroutine;
+use Hyperf\Engine\Coroutine as Co;
 
+/**
+ * @deprecated v3.0 please use `hyperf/context` instead.
+ */
 class Context
 {
     protected static $nonCoContext = [];
@@ -21,7 +23,7 @@ class Context
     public static function set(string $id, $value)
     {
         if (Coroutine::inCoroutine()) {
-            SwCoroutine::getContext()[$id] = $value;
+            Co::getContextFor()[$id] = $value;
         } else {
             static::$nonCoContext[$id] = $value;
         }
@@ -31,10 +33,7 @@ class Context
     public static function get(string $id, $default = null, $coroutineId = null)
     {
         if (Coroutine::inCoroutine()) {
-            if ($coroutineId !== null) {
-                return SwCoroutine::getContext($coroutineId)[$id] ?? $default;
-            }
-            return SwCoroutine::getContext()[$id] ?? $default;
+            return Co::getContextFor($coroutineId)[$id] ?? $default;
         }
 
         return static::$nonCoContext[$id] ?? $default;
@@ -43,10 +42,7 @@ class Context
     public static function has(string $id, $coroutineId = null)
     {
         if (Coroutine::inCoroutine()) {
-            if ($coroutineId !== null) {
-                return isset(SwCoroutine::getContext($coroutineId)[$id]);
-            }
-            return isset(SwCoroutine::getContext()[$id]);
+            return isset(Co::getContextFor($coroutineId)[$id]);
         }
 
         return isset(static::$nonCoContext[$id]);
@@ -65,13 +61,13 @@ class Context
      */
     public static function copy(int $fromCoroutineId, array $keys = []): void
     {
-        /**
-         * @var \ArrayObject
-         * @var \ArrayObject $current
-         */
-        $from = SwCoroutine::getContext($fromCoroutineId);
-        $current = SwCoroutine::getContext();
-        $current->exchangeArray($keys ? array_fill_keys($keys, $from->getArrayCopy()) : $from->getArrayCopy());
+        $from = Co::getContextFor($fromCoroutineId);
+        if ($from === null) {
+            return;
+        }
+
+        $current = Co::getContextFor();
+        $current->exchangeArray($keys ? Arr::only($from->getArrayCopy(), $keys) : $from->getArrayCopy());
     }
 
     /**
@@ -88,10 +84,22 @@ class Context
         return $value;
     }
 
+    /**
+     * Retrieve the value and store it if not exists.
+     * @param mixed $value
+     */
+    public static function getOrSet(string $id, $value)
+    {
+        if (! self::has($id)) {
+            return self::set($id, value($value));
+        }
+        return self::get($id);
+    }
+
     public static function getContainer()
     {
         if (Coroutine::inCoroutine()) {
-            return SwCoroutine::getContext();
+            return Co::getContextFor();
         }
 
         return static::$nonCoContext;

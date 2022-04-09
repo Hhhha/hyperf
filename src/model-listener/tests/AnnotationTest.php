@@ -5,15 +5,14 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace HyperfTest\ModelListener;
 
-use Hyperf\ModelListener\Collector\ListenerCollector;
 use Hyperf\ModelListener\Annotation\ModelListener;
+use Hyperf\ModelListener\Collector\ListenerCollector;
 use HyperfTest\ModelListener\Stub\ModelStub;
 use PHPUnit\Framework\TestCase;
 
@@ -23,7 +22,7 @@ use PHPUnit\Framework\TestCase;
  */
 class AnnotationTest extends TestCase
 {
-    protected function tearDown()
+    protected function tearDown(): void
     {
         parent::tearDown();
 

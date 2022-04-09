@@ -5,16 +5,16 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\Guzzle\RingPHP;
 
 use GuzzleHttp\Ring\Core;
+use GuzzleHttp\Ring\Exception\RingException;
+use Hyperf\Engine\Http\Client;
 use Hyperf\Pool\SimplePool\PoolFactory;
-use Swoole\Coroutine\Http\Client;
 
 class PoolHandler extends CoroutineHandler
 {
@@ -35,13 +35,12 @@ class PoolHandler extends CoroutineHandler
         $method = $request['http_method'] ?? 'GET';
         $scheme = $request['scheme'] ?? 'http';
         $ssl = $scheme === 'https';
-        $uri = $request['uri'] ?? '/';
         $body = $request['body'] ?? '';
         $effectiveUrl = Core::url($request);
         $params = parse_url($effectiveUrl);
         $host = $params['host'];
         if (! isset($params['port'])) {
-            $params['port'] = $ssl ? 443 : 80;
+            $params['port'] = $this->getPort($request, $ssl);
         }
         $port = $params['port'];
         $path = $params['path'] ?? '/';
@@ -50,39 +49,32 @@ class PoolHandler extends CoroutineHandler
         }
 
         $pool = $this->factory->get($this->getPoolName($host, $port), function () use ($host, $port, $ssl) {
-            return new Client($host, $port, $ssl);
+            return $this->makeClient($host, $port, $ssl);
         }, $this->options);
 
         $connection = $pool->get();
 
         try {
+            /** @var Client $client */
             $client = $connection->getConnection();
-            $client->setMethod($method);
-            $client->setData($body);
-
-            $this->initHeaders($client, $request);
+            // Init Headers
+            $headers = $this->initHeaders($request);
             $settings = $this->getSettings($this->options);
-
             if (! empty($settings)) {
                 $client->set($settings);
             }
 
             $btime = microtime(true);
-            $this->execute($client, $path);
 
-            $ex = $this->checkStatusCode($client, $request);
-            if ($ex !== true) {
+            try {
+                $raw = $client->request($method, $path, $headers, (string) $body);
+            } catch (\Exception $exception) {
                 $connection->close();
-                $connection->release();
-                return [
-                    'status' => null,
-                    'reason' => null,
-                    'headers' => [],
-                    'error' => $ex,
-                ];
+                $exception = new RingException($exception->getMessage());
+                return $this->getErrorResponse($exception, $btime, $effectiveUrl);
             }
 
-            $response = $this->getResponse($client, $btime, $effectiveUrl);
+            $response = $this->getResponse($raw, $btime, $effectiveUrl);
         } finally {
             $connection->release();
         }

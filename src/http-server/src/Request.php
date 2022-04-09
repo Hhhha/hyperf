@@ -5,15 +5,16 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\HttpServer;
 
 use Hyperf\HttpMessage\Upload\UploadedFile;
 use Hyperf\HttpServer\Contract\RequestInterface;
+use Hyperf\HttpServer\Router\Dispatched;
+use Hyperf\Macroable\Macroable;
 use Hyperf\Utils\Arr;
 use Hyperf\Utils\Context;
 use Hyperf\Utils\Str;
@@ -28,6 +29,8 @@ use SplFileInfo;
  */
 class Request implements RequestInterface
 {
+    use Macroable;
+
     /**
      * @var array the keys to identify the data of request in coroutine context
      */
@@ -60,6 +63,20 @@ class Request implements RequestInterface
     }
 
     /**
+     * Retrieve the data from route parameters.
+     *
+     * @param mixed $default
+     */
+    public function route(string $key, $default = null)
+    {
+        $route = $this->getAttribute(Dispatched::class);
+        if (is_null($route)) {
+            return $default;
+        }
+        return array_key_exists($key, $route->params) ? $route->params[$key] : $default;
+    }
+
+    /**
      * Retrieve the data from parsed body, if $key is null, will return all parsed body.
      *
      * @param mixed $default
@@ -73,8 +90,7 @@ class Request implements RequestInterface
     }
 
     /**
-     * Retrieve the input data from request, include query parameters, parsed body and json body,
-     * if $key is null, will return all the parameters.
+     * Retrieve the input data from request, include query parameters, parsed body and json body.
      *
      * @param mixed $default
      */
@@ -93,10 +109,9 @@ class Request implements RequestInterface
     public function inputs(array $keys, $default = null): array
     {
         $data = $this->getInputData();
-        $result = $default ?? [];
-
+        $result = [];
         foreach ($keys as $key) {
-            $result[$key] = data_get($data, $key);
+            $result[$key] = data_get($data, $key, $default[$key] ?? null);
         }
 
         return $result;
@@ -114,7 +129,7 @@ class Request implements RequestInterface
     /**
      * Determine if the $keys is exist in parameters.
      *
-     * @return []array [found, not-found]
+     * @return array [found, not-found]
      */
     public function hasInput(array $keys): array
     {
@@ -231,7 +246,7 @@ class Request implements RequestInterface
      */
     public function url(): string
     {
-        return rtrim(preg_replace('/\?.*/', '', $this->getUri()), '/');
+        return rtrim(preg_replace('/\?.*/', '', (string) $this->getUri()), '/');
     }
 
     /**
@@ -490,6 +505,13 @@ class Request implements RequestInterface
         return $this->call(__FUNCTION__, func_get_args());
     }
 
+    public function clearStoredParsedData(): void
+    {
+        if (Context::has($this->contextkeys['parsedData'])) {
+            Context::set($this->contextkeys['parsedData'], null);
+        }
+    }
+
     /**
      * Check that the given file is a valid SplFileInfo instance.
      * @param mixed $file
@@ -504,9 +526,7 @@ class Request implements RequestInterface
      */
     protected function preparePathInfo(): string
     {
-        if (($requestUri = $this->getRequestUri()) === null) {
-            return '/';
-        }
+        $requestUri = $this->getRequestUri();
 
         // Remove the query string from REQUEST_URI
         if (false !== $pos = strpos($requestUri, '?')) {
@@ -564,11 +584,7 @@ class Request implements RequestInterface
     {
         return $this->storeParsedData(function () {
             $request = $this->getRequest();
-            $contentType = $request->getHeaderLine('Content-Type');
-            if ($contentType && Str::startsWith($contentType, 'application/json')) {
-                $body = $request->getBody();
-                $data = json_decode($body->getContents(), true) ?? [];
-            } elseif (is_array($request->getParsedBody())) {
+            if (is_array($request->getParsedBody())) {
                 $data = $request->getParsedBody();
             } else {
                 $data = [];

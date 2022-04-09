@@ -5,15 +5,15 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
- * @license  https://github.com/hyperf-cloud/hyperf/blob/master/LICENSE
+ * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace HyerfTest\Guzzle\Cases;
 
 use Hyperf\Guzzle\RingPHP\CoroutineHandler;
 use HyperfTest\Guzzle\Stub\RingPHPCoroutineHanderStub;
+use Mockery;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -22,6 +22,11 @@ use PHPUnit\Framework\TestCase;
  */
 class RingPHPCoroutineHandlerTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        Mockery::close();
+    }
+
     public function testUserInfo()
     {
         $handler = new RingPHPCoroutineHanderStub();
